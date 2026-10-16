@@ -97,8 +97,11 @@ export function getGroup(board, startR, startC) {
   visitedStones.add(`${startR},${startC}`)
   const stones = [{ r: startR, c: startC }]
 
-  while (queue.length > 0) {
-    const { r, c } = queue.shift()
+  // 用游标而非 queue.shift()：shift() 是 O(n)，
+  // 每次 AI 评估要调用 getGroup 近 10 次，累积成明显的额外开销
+  let head = 0
+  while (head < queue.length) {
+    const { r, c } = queue[head++]
     const neighbors = getNeighbors(r, c, size)
 
     for (let i = 0; i < neighbors.length; i++) {
