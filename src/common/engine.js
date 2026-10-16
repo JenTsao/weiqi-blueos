@@ -250,27 +250,109 @@ export function getLegalMoves(board, color, koPoint = null) {
  * @param {number} komi 贴目数
  * @returns {object} 胜负得分与领地详情
  */
+/**
+ * 数子前清理死子。
+ *
+ * 中国规则的数子流程是「先由双方确认死子并移除，再数子+围空」，
+ * 不是把盘上所有子都算成活的。原先直接清点全盘，导致：
+ *   1 颗被围死的黑子仍给黑记 1 分，3 颗就记 3 分。
+ *
+ * 判定死子：对方一手能合法提掉它（只剩 1 气，且对方下那口气不是自杀）。
+ * 这条判据天然不会误伤活棋——两眼活棋至少 2 气，永远提不掉；
+ * 双活（seki）双方共享 2 气，同样不会被判死。
+ *
+ * 反复迭代：一块死子被清走后，腾出的气可能让原本没气的邻块也变死。
+ *
+ * @returns {{board:number[][], removedBlack:number, removedWhite:number}}
+ */
+export function removeDeadStones(board) {
+  const size = board.length
+  let b = board.map((row) => [...row])
+  let removedBlack = 0
+  let removedWhite = 0
+
+  // 轮数上限防止逻辑异常时死循环；实际最多 2~3 轮即收敛
+  for (let pass = 0; pass < 8; pass++) {
+    let removedThisPass = 0
+    const seen = new Set()
+
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (b[r][c] === EMPTY) continue
+        const key = `${r},${c}`
+        if (seen.has(key)) continue
+
+        const grp = getGroup(b, r, c)
+        for (let i = 0; i < grp.stones.length; i++) {
+          seen.add(`${grp.stones[i].r},${grp.stones[i].c}`)
+        }
+
+        let dead = false
+        if (grp.libertyCount === 0) {
+          dead = true
+        } else if (grp.libertyCount === 1) {
+          const lib = grp.liberties[0]
+          const opp = grp.color === BLACK ? WHITE : BLACK
+          // 数子阶段无劫争顾虑；对方下这口气合法即视为提得掉
+          const probe = playMove(b, lib.r, lib.c, opp, null)
+          dead = probe.success
+        }
+
+        if (dead) {
+          for (let i = 0; i < grp.stones.length; i++) {
+            const s = grp.stones[i]
+            b[s.r][s.c] = EMPTY
+          }
+          removedThisPass += grp.stones.length
+          if (grp.color === BLACK) removedBlack += grp.stones.length
+          else removedWhite += grp.stones.length
+        }
+      }
+    }
+
+    if (removedThisPass === 0) break
+  }
+
+  return { board: b, removedBlack, removedWhite }
+}
+
+/**
+ * 围棋数子法胜负判定 (Area Scoring / 中国规则)
+ * 黑贴 3.75 目 (7路/9路) 或 7.5 目 (13路/19路)
+ *
+ * 流程：清理死子 → 清点活子 → 圈定领地 → 合计
+ * @param {number[][]} board 棋盘
+ * @param {number} komi 贴目数
+ * @returns {object} 胜负得分与领地详情
+ */
 export function calculateScore(board, komi = 3.75) {
   const size = board.length
+
+  // 0. 先清理死子：被对方提得掉的子不能计入己方得分
+  const cleanup = removeDeadStones(board)
+  const scored = cleanup.board
+
   let blackStones = 0
   let whiteStones = 0
 
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
-      if (board[r][c] === BLACK) blackStones++
-      else if (board[r][c] === WHITE) whiteStones++
+      if (scored[r][c] === BLACK) blackStones++
+      else if (scored[r][c] === WHITE) whiteStones++
     }
   }
 
   // 领地划分
   const visited = new Set()
-  const territoryMap = board.map((row) => [...row]) // 复制，后续标领地归属: 1黑目, 2白目, 0公气
+  // 复制自「已清理死子」的盘面：领地圈定必须基于清理后的棋形，
+  // 否则死子周围会被算成其原主的空地，与死子本身重复计分
+  const territoryMap = scored.map((row) => [...row]) // 1黑目, 2白目, 0公气
   let blackTerritory = 0
   let whiteTerritory = 0
 
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
-      if (board[r][c] === EMPTY && !visited.has(`${r},${c}`)) {
+      if (scored[r][c] === EMPTY && !visited.has(`${r},${c}`)) {
         // BFS 搜索该空地连通区域
         const queue = [{ r, c }]
         visited.add(`${r},${c}`)
@@ -278,13 +360,16 @@ export function calculateScore(board, komi = 3.75) {
         let touchesBlack = false
         let touchesWhite = false
 
-        while (queue.length > 0) {
-          const curr = queue.shift()
+        // 游标而非 shift()：每个空区跑一次 BFS，shift() 的 O(n)
+        // 在大空区上会明显拖慢数子
+        let head = 0
+        while (head < queue.length) {
+          const curr = queue[head++]
           const neighbors = getNeighbors(curr.r, curr.c, size)
 
           for (let i = 0; i < neighbors.length; i++) {
             const { r: nr, c: nc } = neighbors[i]
-            const val = board[nr][nc]
+            const val = scored[nr][nc]
             const k = `${nr},${nc}`
 
             if (val === BLACK) {
@@ -342,6 +427,13 @@ export function calculateScore(board, komi = 3.75) {
     winner,
     diff: diff.toFixed(1),
     territoryMap,
+    // 数子过程中被清理掉的死子，纯信息字段，供 UI 展示用。
+    // 注意：这些子被移除后所在的交叉点已按空地计入 blackTerritory /
+    // whiteTerritory / 公气，所以**不可**再叠加到 blackTotal / whiteTotal 上，
+    // 恒等式应为：
+    //   blackStones + whiteStones + blackTerritory + whiteTerritory + 公气 = size²
+    removedBlack: cleanup.removedBlack,
+    removedWhite: cleanup.removedWhite,
   }
 }
 

@@ -142,6 +142,10 @@
             <text class="score-label">贴目规则：</text>
             <text class="score-val">{{ size === 13 ? '贴 7.5 目' : '贴 3.75 目' }}</text>
           </div>
+          <div class="score-row" if="{{resultData.removedDetail}}">
+            <text class="score-label">死子清理：</text>
+            <text class="score-val">{{ resultData.removedDetail }}</text>
+          </div>
         </div>
 
         <div class="modal-actions">
@@ -770,8 +774,9 @@
         leadText = '双方盘面相当'
       }
 
+      const removed = score.removedBlack + score.removedWhite
       prompt.showToast({
-        message: `形势估计: ${leadText}`,
+        message: `形势估计: ${leadText}` + (removed > 0 ? ` (清死${removed})` : ''),
       })
     },
 
@@ -805,11 +810,15 @@
             ? `白胜 ${score.diff} 目`
             : '和棋'
 
+      const removed = score.removedBlack + score.removedWhite
       this.resultData = {
         winnerText,
         scoreText: diffText,
         blackDetail: `${score.blackStones}子 + ${score.blackTerritory}目 = ${score.blackTotal}分`,
         whiteDetail: `${score.whiteStones}子 + ${score.whiteTerritory}目 + ${komi}贴 = ${score.whiteTotal}分`,
+        // 有死子被清理时才显示，让用户知道数子过程做了什么
+        removedDetail:
+          removed > 0 ? `清理死子 黑${score.removedBlack} · 白${score.removedWhite}` : '',
       }
 
       // 更新战绩统计
