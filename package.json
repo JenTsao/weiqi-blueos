@@ -2,7 +2,12 @@
   "name": "weiqi",
   "version": "1.0.0",
   "packageManager": "pnpm@9.9.0",
-  "description": "Hello World template using Tailwind CSS.",
+  "description": "蓝河围棋 —— vivo 蓝河操作系统 (BlueOS) 手表上的围棋人机对弈应用",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JenTsao/weiqi-blueos.git"
+  },
   "scripts": {
     "lint": "eslint --ext .ux,.js src/",
     "prettier": "node ./scripts/selfCloseInputTag.js && prettier --plugin prettier-plugin-ux --write \"src/**/*.{js,ux,less,scss,css}\""
@@ -17,9 +22,12 @@
     "prettier-plugin-ux": "^0.3.0"
   },
   "keywords": [
-    "Hello World",
-    "Tailwind CSS",
-    "prettier"
+    "blueos",
+    "vivo",
+    "watch",
+    "weiqi",
+    "go-game",
+    "goban"
   ],
   "dependencies": {
     "tailwindcss": "^3.4.13"
