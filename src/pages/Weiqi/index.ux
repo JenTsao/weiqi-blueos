@@ -5,10 +5,10 @@
       <!-- 顶部信息栏 -->
       <div class="header-bar">
         <!-- 黑方信息 -->
-        <div class="player-pill {{currentTurn === 1 ? 'pill-active' : ''}}">
+        <div class="player-pill {{currentTurn === 1 && !isThinking ? 'pill-active' : ''}}">
           <div class="stone-icon stone-icon-black"></div>
           <text class="player-name">{{ playerColor === 1 ? '您(黑)' : 'AI(黑)' }}</text>
-          <text class="capture-badge">{{ capturedByBlack }}</text>
+          <text class="capture-badge">提{{ capturedByBlack }}</text>
         </div>
 
         <!-- 对局状态中岛 -->
@@ -20,10 +20,10 @@
         </div>
 
         <!-- 白方信息 -->
-        <div class="player-pill {{currentTurn === 2 ? 'pill-active' : ''}}">
+        <div class="player-pill {{currentTurn === 2 && !isThinking ? 'pill-active' : ''}}">
           <div class="stone-icon stone-icon-white"></div>
           <text class="player-name">{{ playerColor === 2 ? '您(白)' : 'AI(白)' }}</text>
-          <text class="capture-badge">{{ capturedByWhite }}</text>
+          <text class="capture-badge">提{{ capturedByWhite }}</text>
         </div>
       </div>
 
@@ -100,7 +100,7 @@
         <!-- 默认模式 / 未选择时的按钮组 -->
         <input
           if="{{placementMode !== 'confirm' || !selectedPos}}"
-          class="btn btn-secondary"
+          class="btn btn-secondary {{moveHistory.length === 0 || isThinking || gameOver ? 'btn-off' : ''}}"
           type="button"
           value="悔棋"
           onclick="handleUndo" />
@@ -908,10 +908,12 @@
     padding: 6px 12px 10px;
   }
 
-  /* 顶部信息栏 */
+  /* 顶部信息栏
+     高度 48 -> 56：原先纵向预算还有 14px 余量（可用 362 / 棋盘实占 348），
+     加高不挤压棋盘。信息更易读，也给状态区留出呼吸。 */
   .header-bar {
     width: 100%;
-    height: 48px;
+    height: 56px;
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
@@ -920,27 +922,29 @@
   .player-pill {
     flex-direction: row;
     align-items: center;
-    background-color: #1e1e22;
-    border-radius: 14px;
-    padding: 4px 8px;
-    border: 1px solid #2d2d32;
+    background-color: #16161a;
+    border-radius: 16px;
+    padding: 6px 10px;
+    border: 1px solid #2a2a30;
   }
 
+  /* 当前行棋方：边框 + 底色双重高亮。
+     原先只有 1px 边框变化，在手表小屏上几乎看不出来轮到谁。 */
   .pill-active {
-    border: 1px solid #f59e0b;
-    background-color: #2a2215;
+    border: 2px solid #f59e0b;
+    background-color: #3a2c10;
   }
 
   .stone-icon {
-    width: 16px;
-    height: 16px;
-    border-radius: 8px;
-    margin-right: 4px;
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    margin-right: 6px;
   }
 
   .stone-icon-black {
     background-color: #1a1a1a;
-    border: 1px solid #444444;
+    border: 1px solid #4a4a4a;
   }
 
   .stone-icon-white {
@@ -949,15 +953,16 @@
   }
 
   .player-name {
-    font-size: 14px;
+    font-size: 15px;
     color: #e5e5e5;
   }
 
+  /* 提子数：模板里带「提」字前缀，否则光一个数字看不出含义 */
   .capture-badge {
     font-size: 13px;
     color: #f59e0b;
     font-weight: bold;
-    margin-left: 4px;
+    margin-left: 6px;
   }
 
   .turn-status-box {
@@ -966,19 +971,23 @@
     justify-content: center;
   }
 
+  /* 状态区文字对比度：
+     原 #666666 压在 #121212 上只有约 3.3:1，低于 WCAG AA 的 4.5:1，
+     户外强光下几乎读不出来。统一提到 #9ca3af（约 7:1）。 */
   .turn-status-text {
-    font-size: 13px;
-    color: #a3a3a3;
+    font-size: 15px;
+    color: #c9d1d9;
+    font-weight: 500;
   }
 
   .status-thinking {
-    color: #3b82f6;
+    color: #60a5fa;
   }
 
   .step-count-text {
-    font-size: 11px;
-    color: #666666;
-    margin-top: 1px;
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 2px;
   }
 
   /* 棋盘主体包装区 */
@@ -1022,7 +1031,9 @@
     background-color: #4a2f13;
   }
 
-  /* 棋子 */
+  /* 棋子：加一层纵向渐变模拟顶部受光，纯色圆点在木纹棋盘上过于扁平。
+     用 to bottom 而非斜向：官方文档示例只确认了 `to right` 这类正向渐变，
+     斜向若不被支持会整体退化成纯色（不至于坏，但白加）。 */
   .stone {
     position: absolute;
     justify-content: center;
@@ -1031,12 +1042,14 @@
 
   .stone-black {
     background-color: #1a1a1a;
+    background-image: linear-gradient(to bottom, #3f3f3f 0%, #1a1a1a 55%, #080808 100%);
     border: 1px solid #0a0a0a;
   }
 
   .stone-white {
     background-color: #f7f7f7;
-    border: 1px solid #d4d4d8;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f0f0f0 50%, #cdcdd2 100%);
+    border: 1px solid #b8b8c0;
   }
 
   /* 最后一手标记 */
@@ -1093,6 +1106,14 @@
     margin: 0 3px;
     background-color: #26262a;
     color: #e5e5e5;
+  }
+
+  /* 不可用态（开局无棋可悔 / AI 思考中）。
+     handler 本身已有 toast 提示，这里只做视觉预告，
+     避免用户点了才知道按不了。 */
+  .btn-off {
+    background-color: #17171a;
+    color: #5a5a62;
   }
 
   .btn-menu {
