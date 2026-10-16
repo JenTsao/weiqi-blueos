@@ -30,67 +30,61 @@
       <!-- 中间棋盘区域 -->
       <div class="board-wrapper">
         <!--
-          必须用 stack 显式分层，不能靠兄弟节点的绘制顺序。
-          .cell 是 position: relative，网格线/星位点是 position: absolute，
-          两者绘制阶段不同，线会被画在棋子之上，把棋子切一道十字。
-          stack 按子节点先后顺序层叠：线 -> 星位点 -> 棋子。
+          网格线、星位点、cell 三者必须同为 position: absolute。
+          .cell 若用 position: relative，会与绝对定位的线处于不同绘制阶段，
+          线会被压在棋子之上，把每颗棋子切一道十字。
+          同为绝对定位后由 DOM 先后决定上下：线 -> 星位点 -> 棋子。
         -->
-        <stack
+        <div
           class="board-container"
           style="width: {{boardPixelSize}}px; height: {{boardPixelSize}}px;">
-          <!-- 层 1：网格线（最底） -->
-          <div class="board-layer">
-            <div
-              for="{{hLines}}"
-              class="grid-line grid-line-h"
-              style="top: {{$item.offset}}px; left: {{$item.inset}}px; width: {{$item.length}}px;"></div>
-            <div
-              for="{{vLines}}"
-              class="grid-line grid-line-v"
-              style="left: {{$item.offset}}px; top: {{$item.inset}}px; height: {{$item.length}}px;"></div>
-          </div>
+          <!-- 网格线：横 N 条 + 竖 N 条，每条整条画一次 -->
+          <div
+            for="{{hLines}}"
+            class="grid-line grid-line-h"
+            style="top: {{$item.offset}}px; left: {{$item.inset}}px; width: {{$item.length}}px;"></div>
+          <div
+            for="{{vLines}}"
+            class="grid-line grid-line-v"
+            style="left: {{$item.offset}}px; top: {{$item.inset}}px; height: {{$item.length}}px;"></div>
 
-          <!-- 层 2：星位点（独立坐标，不随 cell 节点回收漂移） -->
-          <div class="board-layer">
+          <!-- 星位点：独立坐标，不随 cell 节点回收漂移 -->
+          <div
+            for="{{starDots}}"
+            class="star-dot"
+            style="width: {{starDotSize}}px; height: {{starDotSize}}px; border-radius: {{starDotRadius}}px; top: {{$item.top}}px; left: {{$item.left}}px;"></div>
+
+          <!-- 棋子层：绝对定位，坐标由 r/c 直接算出 -->
+          <div
+            for="{{cells}}"
+            class="cell"
+            style="width: {{cellPixelSize}}px; height: {{cellPixelSize}}px; top: {{$item.top}}px; left: {{$item.left}}px;"
+            onclick="handleCellClick($item)">
+            <!-- 黑子 -->
             <div
-              for="{{starDots}}"
-              class="star-dot"
-              style="width: {{starDotSize}}px; height: {{starDotSize}}px; border-radius: {{starDotRadius}}px; top: {{$item.top}}px; left: {{$item.left}}px;"></div>
-          </div>
-
-          <!-- 层 3：棋子与高亮圈（最上） -->
-          <div class="board-layer board-cells">
-            <div
-              for="{{cells}}"
-              class="cell"
-              style="width: {{cellPixelSize}}px; height: {{cellPixelSize}}px;"
-              onclick="handleCellClick($item)">
-              <!-- 黑子 -->
-              <div
-                class="stone stone-black"
-                style="width: {{stonePixelSize}}px; height: {{stonePixelSize}}px; border-radius: {{stoneRadius}}px; top: {{stoneOffset}}px; left: {{stoneOffset}}px;"
-                show="{{$item.val === 1}}">
-                <!-- 最后一手标记 -->
-                <div class="last-marker last-marker-black" show="{{$item.isLast}}"></div>
-              </div>
-
-              <!-- 白子 -->
-              <div
-                class="stone stone-white"
-                style="width: {{stonePixelSize}}px; height: {{stonePixelSize}}px; border-radius: {{stoneRadius}}px; top: {{stoneOffset}}px; left: {{stoneOffset}}px;"
-                show="{{$item.val === 2}}">
-                <!-- 最后一手标记 -->
-                <div class="last-marker last-marker-white" show="{{$item.isLast}}"></div>
-              </div>
-
-              <!-- 预选高亮瞄准圈 (确认模式下) -->
-              <div
-                class="cursor-ring"
-                style="width: {{cursorPixelSize}}px; height: {{cursorPixelSize}}px; border-radius: {{cursorRadius}}px; top: {{cursorOffset}}px; left: {{cursorOffset}}px;"
-                show="{{$item.isSelected && $item.val === 0}}"></div>
+              class="stone stone-black"
+              style="width: {{stonePixelSize}}px; height: {{stonePixelSize}}px; border-radius: {{stoneRadius}}px; top: {{stoneOffset}}px; left: {{stoneOffset}}px;"
+              show="{{$item.val === 1}}">
+              <!-- 最后一手标记 -->
+              <div class="last-marker last-marker-black" show="{{$item.isLast}}"></div>
             </div>
+
+            <!-- 白子 -->
+            <div
+              class="stone stone-white"
+              style="width: {{stonePixelSize}}px; height: {{stonePixelSize}}px; border-radius: {{stoneRadius}}px; top: {{stoneOffset}}px; left: {{stoneOffset}}px;"
+              show="{{$item.val === 2}}">
+              <!-- 最后一手标记 -->
+              <div class="last-marker last-marker-white" show="{{$item.isLast}}"></div>
+            </div>
+
+            <!-- 预选高亮瞄准圈 (确认模式下) -->
+            <div
+              class="cursor-ring"
+              style="width: {{cursorPixelSize}}px; height: {{cursorPixelSize}}px; border-radius: {{cursorRadius}}px; top: {{cursorOffset}}px; left: {{cursorOffset}}px;"
+              show="{{$item.isSelected && $item.val === 0}}"></div>
           </div>
-        </stack>
+        </div>
       </div>
 
       <!-- 底部操作栏 -->
@@ -508,6 +502,8 @@
             r,
             c,
             val,
+            top: r * s,
+            left: c * s,
             isSelected: selR === r && selC === c,
             isLast: lastR === r && lastC === c,
           })
@@ -994,28 +990,16 @@
   }
 
   .board-container {
+    position: relative;
     background-color: #d8a85e;
     border-radius: 8px;
     border: 2px solid #7c5123;
   }
 
-  /* stack 的每个直接子层：一层铺满，供该层内绝对定位元素作参照 */
-  .board-layer {
-    position: relative;
-    width: 100%;
-    height: 100%;
-  }
-
-  /* 棋子层负责 9 列换行排布 */
-  .board-cells {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-content: flex-start;
-  }
-
-  /* 交叉点单元格 */
+  /* 交叉点单元格：必须与网格线同为 position: absolute，
+     否则会与线处于不同绘制阶段，线压在棋子之上 */
   .cell {
-    position: relative;
+    position: absolute;
   }
 
   /* 网格线：横 N 条 + 竖 N 条，每条一次画完整条 */
