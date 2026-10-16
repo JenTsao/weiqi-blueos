@@ -4,18 +4,15 @@
   "versionName": "1.0.0",
   "versionCode": 1,
   "icon": "/assets/images/logo.png",
+  "appCategory": [
+    "games"
+  ],
   "features": [
     {
       "name": "blueos.window.prompt"
     },
     {
       "name": "blueos.storage.storage"
-    },
-    {
-      "name": "blueos.app.router"
-    },
-    {
-      "name": "blueos.app.appmanager.router"
     }
   ],
   "deviceTypeList": [
