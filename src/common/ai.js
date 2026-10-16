@@ -91,27 +91,154 @@ const ILLEGAL = -99999
 
 /**
  * 判断某块棋在对手下一手能否被提掉。
- * @returns {{capturable:boolean, escapeBad:boolean}}
- *   captured   —— 只剩1气且对手可立刻提
- *   escapeBad  —— 逃也逃不掉（简单梯子识别）
+ * @returns {{capturable:boolean}}
+ *   captured —— 只剩1气且对手可立刻提
  */
 function analyzeAtariRisk(board, group, oppColor, koPoint) {
-  if (group.libertyCount === 0) return { captured: true, escapeBad: true }
-  if (group.libertyCount > 1) return { captured: false, escapeBad: false }
+  if (group.libertyCount === 0) return { captured: true }
+  if (group.libertyCount > 1) return { captured: false }
 
-  // 只剩 1 气
   const lib = group.liberties[0]
-  if (!lib) return { captured: false, escapeBad: false }
+  if (!lib) return { captured: false }
 
   // 对手能否直接提掉这一块
   const reply = playMove(board, lib.r, lib.c, oppColor, koPoint)
-  if (reply.success) {
-    return { captured: true, escapeBad: true }
-  }
+  return { captured: reply.success }
+}
 
-  // 对手无法直接提（该气点本身是禁着点，打劫情形），
-  // 不作梯子惩罚，避免误判
-  return { captured: false, escapeBad: false }
+/* ------------------------------------------------------------------ *
+ * 死活辅助：梯子读取 + 两眼活棋判定
+ * ------------------------------------------------------------------ */
+
+/**
+ * 找出对方一手能把指定棋块压到 1 气的着法（叫吃）。
+ * @returns {{board:number[][], group:object, captured:boolean}|null}
+ *   captured 为 true 表示该着法直接把这块棋提掉了。
+ */
+function findAtariMove(board, group, oppColor) {
+  for (let i = 0; i < group.liberties.length; i++) {
+    const lib = group.liberties[i]
+    const res = playMove(board, lib.r, lib.c, oppColor, null)
+    if (!res.success) continue
+
+    const anchor = group.stones[0]
+    // 原本这块棋被提掉了
+    if (res.newBoard[anchor.r][anchor.c] !== group.color) {
+      return { board: res.newBoard, group: null, captured: true }
+    }
+    const target = getGroup(res.newBoard, anchor.r, anchor.c)
+    if (target.libertyCount === 1) {
+      return { board: res.newBoard, group: target, captured: false }
+    }
+  }
+  return null
+}
+
+/**
+ * 梯子读取：从 (r,c) 这块只剩一口气的棋出发，模拟双方轮流长气/叫吃，
+ * 判断最终是逃掉还是被抓。
+ *
+ * 模型：每轮我方在某个气点长出第二气，对方立刻填掉一气再把我方压回
+ * 1 气，如此往复。逃出 2 气且对方无法再叫吃即视为脱困。
+ *
+ * @returns {'escaped'|'caught'|'unknown'}
+ */
+function simulateLadder(board, r, c, maxSteps) {
+  const oppColor = board[r][c] === BLACK ? WHITE : BLACK
+  let b = board
+  let grp = getGroup(b, r, c)
+  const ownColor = grp.color
+
+  for (let step = 0; step < maxSteps; step++) {
+    if (grp.libertyCount >= 2) return 'escaped'
+    if (grp.libertyCount === 0) return 'caught'
+
+    // 我方长气：找一个能让这块棋涨到 2 气的点
+    let grown = false
+    for (let i = 0; i < grp.liberties.length; i++) {
+      const lib = grp.liberties[i]
+      const res = playMove(b, lib.r, lib.c, ownColor, null)
+      if (!res.success) continue
+      const ng = getGroup(res.newBoard, lib.r, lib.c)
+      if (ng.libertyCount >= 2) {
+        b = res.newBoard
+        grp = ng
+        grown = true
+        break
+      }
+    }
+    if (!grown) return 'caught'
+
+    // 对方叫吃
+    const atari = findAtariMove(b, grp, oppColor)
+    if (!atari) return 'escaped' // 对方压不住我方
+    if (atari.captured) return 'caught'
+    b = atari.board
+    grp = atari.group
+  }
+  // 步数用尽仍没分出结果：偏向保守，按不利处理
+  return 'unknown'
+}
+
+/**
+ * 计算某个棋块的「真眼」数量。>= 2 视为活棋。
+ *
+ * 真眼定义：一块完全被本方棋子围住的空区，且不与对方相邻。
+ * 只统计 1~2 点的空区（真正的眼位），大空区另作处理。
+ */
+function countEyes(board, group) {
+  const size = board.length
+  const color = group.color
+  const visited = new Set()
+  let eyes = 0
+
+  // 从本方棋子的四邻出发，flood fill 所有封闭空区
+  for (let i = 0; i < group.stones.length; i++) {
+    const s = group.stones[i]
+    const neighbors = getNeighbors(s.r, s.c, size)
+    for (let j = 0; j < neighbors.length; j++) {
+      const n = neighbors[j]
+      const key = `${n.r},${n.c}`
+      if (board[n.r][n.c] !== EMPTY || visited.has(key)) continue
+
+      // flood fill 该空区
+      const stack = [n]
+      visited.add(key)
+      let area = 0
+      let touchesOpponent = false
+
+      while (stack.length > 0) {
+        const cur = stack.pop()
+        area++
+        const curNeighbors = getNeighbors(cur.r, cur.c, size)
+        for (let k = 0; k < curNeighbors.length; k++) {
+          const nn = curNeighbors[k]
+          const val = board[nn.r][nn.c]
+          if (val === EMPTY) {
+            const kk = `${nn.r},${nn.c}`
+            if (!visited.has(kk)) {
+              visited.add(kk)
+              stack.push(nn)
+            }
+          } else if (val !== color) {
+            touchesOpponent = true
+          }
+        }
+      }
+
+      // 不与对方相邻，且足够小 —— 算一个真眼
+      if (!touchesOpponent && area <= 2) eyes++
+      if (eyes >= 2) return 2
+    }
+  }
+  return eyes
+}
+
+/**
+ * 判断某块棋是否已经活透（两眼）。
+ */
+function isAlive(board, group) {
+  return countEyes(board, group) >= 2
 }
 
 /**
@@ -151,6 +278,15 @@ function evaluateLocal(board, r, c, aiColor, koPoint) {
     if (risk.captured) {
       // 越小的一块被吃掉，损失越小；大块被吃则重罚
       score -= 260 + myGroup.stones.length * 40
+    } else if (myGroup.stones.length >= 2) {
+      // 对手不能立刻提（多见于提子后形成的一气），
+      // 但继续跑会不会进梯子？读一手。大棋盘少读几步控制开销。
+      const ladder = simulateLadder(newBoard, r, c, size <= 9 ? 8 : 6)
+      if (ladder === 'caught') {
+        score -= 240
+      } else if (ladder === 'unknown') {
+        score -= 70
+      }
     }
   }
 
@@ -307,8 +443,16 @@ function chooseMedium(list) {
 
 /**
  * 整盘形势评估：从 color 视角给当前局面打分。
- * 子力 + 全盘控制力 + 贴目补偿。
- * 这是 2-ply 搜索真正用来比较优劣的函数。
+ *
+ * 关键在于**子力按死活状态折算**：
+ *   - 两眼活棋      按足额计（3/子）
+ *   - 尚未死定      折半计（1.5/子）
+ *   - 只剩1气且对方能直接提  只计 0.2/子（马上就要没了）
+ *
+ * 若一律按 3/子 计，AI 会把「一堆快被提掉的死子」和「两块真活棋」
+ * 看成等价，从而去救死子、放着必丢的棋不管。数子规则下这是硬伤。
+ *
+ * 子力按棋块统计而非逐子，避免同一块棋被重复判眼。
  */
 function evaluatePosition(board, color) {
   const size = board.length
@@ -317,18 +461,42 @@ function evaluatePosition(board, color) {
   const komi = size === 13 ? 7.5 : 3.75
 
   let score = 0
+
+  // 1. 空点的控制力
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (board[r][c] !== EMPTY) continue
+      score += controlAt(infl, r, c, color).value * 0.5
+    }
+  }
+
+  // 2. 子力（按棋块死活折算）
+  const seen = new Set()
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       const v = board[r][c]
-      if (v === color) {
-        score += 3 // 子力
-      } else if (v === opp) {
-        score -= 3
-      } else {
-        score += controlAt(infl, r, c, color).value * 0.5
+      if (v === EMPTY || seen.has(`${r},${c}`)) continue
+
+      const grp = getGroup(board, r, c)
+      for (let i = 0; i < grp.stones.length; i++) {
+        seen.add(`${grp.stones[i].r},${grp.stones[i].c}`)
       }
+
+      let unit
+      if (isAlive(board, grp)) {
+        unit = 3 // 活棋，足额
+      } else if (grp.libertyCount <= 1) {
+        // 1 气：对方下一手通常就能提掉，价值极低
+        const risk = analyzeAtariRisk(board, grp, v === BLACK ? WHITE : BLACK, null)
+        unit = risk.captured ? 0.2 : 1
+      } else {
+        unit = 1.5 // 未定形，折半
+      }
+
+      score += (v === color ? 1 : -1) * grp.stones.length * unit
     }
   }
+
   // 白棋贴目优势，等价于给白棋加分
   if (color === WHITE) score += komi
 
@@ -350,15 +518,28 @@ function evaluatePosition(board, color) {
  * 形势分只用于在战术分接近的着法之间做全局取舍，不取代战术判断。
  * 若只用形势分，AI 会看不见「逃气」「叫吃」这类局部生死。
  *
- * 为控制手表端算力，对方应手只在 AI 落点附近半径 2 内搜索。
+ * 为控制手表端算力，对方应手只在 AI 落点附近搜索，范围见 searchBudget。
  */
+
+/**
+ * 搜索预算按棋盘大小缩放。
+ *
+ * evaluatePosition 的调用次数 = 候选数 × (1 + 应手数)，而它内部还要建势力场
+ * 并逐块判眼，开销随盘面迅速放大。不限量的话桌面 13 路要 13.6ms/手，
+ * 挪到手表端会顶破 320ms 的走子间隔。
+ */
+function searchBudget(size) {
+  if (size <= 9) return { pool: 6, radius: 2, ladderSteps: 8 }
+  return { pool: 4, radius: 1, ladderSteps: 6 }
+}
 function chooseMaster(board, list, aiColor, koPoint) {
   if (list.length === 0) return null
 
   const size = board.length
   const oppColor = aiColor === BLACK ? WHITE : BLACK
-  const POOL = 6
-  const REPLY_RADIUS = 2
+  const budget = searchBudget(size)
+  const POOL = budget.pool
+  const REPLY_RADIUS = budget.radius
 
   // 所有候选共用的基准形势
   const basePos = evaluatePosition(board, aiColor)
