@@ -32,36 +32,28 @@
         <div
           class="board-container"
           style="width: {{boardPixelSize}}px; height: {{boardPixelSize}}px;">
-          <!-- 棋盘单元格网格 -->
+          <!-- 网格线：横 N 条 + 竖 N 条，每条整条画一次 -->
+          <div
+            for="{{hLines}}"
+            class="grid-line grid-line-h"
+            style="top: {{$item.offset}}px; left: {{$item.inset}}px; width: {{$item.length}}px;"></div>
+          <div
+            for="{{vLines}}"
+            class="grid-line grid-line-v"
+            style="left: {{$item.offset}}px; top: {{$item.inset}}px; height: {{$item.length}}px;"></div>
+
+          <!-- 星位点：独立图层，坐标直接算，不随 cell 节点回收漂移 -->
+          <div
+            for="{{starDots}}"
+            class="star-dot"
+            style="width: {{starDotSize}}px; height: {{starDotSize}}px; border-radius: {{starDotRadius}}px; top: {{$item.top}}px; left: {{$item.left}}px;"></div>
+
+          <!-- 棋子层 -->
           <div
             for="{{cells}}"
             class="cell"
             style="width: {{cellPixelSize}}px; height: {{cellPixelSize}}px;"
             onclick="handleCellClick($item)">
-            <!-- 十字网格线 -->
-            <div
-              class="line-h-left"
-              style="top: {{gridLineOffset}}px;"
-              show="{{$item.c > 0}}"></div>
-            <div
-              class="line-h-right"
-              style="top: {{gridLineOffset}}px;"
-              show="{{$item.c < size - 1}}"></div>
-            <div
-              class="line-v-top"
-              style="left: {{gridLineOffset}}px;"
-              show="{{$item.r > 0}}"></div>
-            <div
-              class="line-v-bottom"
-              style="left: {{gridLineOffset}}px;"
-              show="{{$item.r < size - 1}}"></div>
-
-            <!-- 星位点 -->
-            <div
-              class="star-dot"
-              style="width: {{starDotSize}}px; height: {{starDotSize}}px; border-radius: {{starDotRadius}}px; top: {{starDotOffset}}px; left: {{starDotOffset}}px;"
-              show="{{$item.isStar && $item.val === 0}}"></div>
-
             <!-- 黑子 -->
             <div
               class="stone stone-black"
@@ -293,24 +285,28 @@
       playerColor: BLACK,
       placementMode: 'confirm', // 'confirm' 或 'direct'
 
-      // 布局尺寸 (基于 432px 宽度设计稿)
-      boardPixelSize: 396,
-      cellPixelSize: 44,
-      gridLineOffset: 22,
-      stonePixelSize: 38,
-      stoneRadius: 19,
+      // 布局尺寸 (9x9 @ step=38 的初值，与 calcGeometry() 保持一致，
+      // 避免 onInit 计算完成前出现一帧错误尺寸)
+      boardPixelSize: 342,
+      cellPixelSize: 38,
+      gridLineOffset: 19,
+      stonePixelSize: 32,
+      stoneRadius: 16,
       stoneOffset: 3,
-      cursorPixelSize: 42,
-      cursorRadius: 21,
+      cursorPixelSize: 35,
+      cursorRadius: 17,
       cursorOffset: 1,
       starDotSize: 6,
       starDotRadius: 3,
-      starDotOffset: 19,
+      starDotOffset: 16,
 
       // 对局状态
       currentTurn: BLACK,
       board: [],
       cells: [],
+      hLines: [],
+      vLines: [],
+      starDots: [],
       moveHistory: [],
       capturedByBlack: 0,
       capturedByWhite: 0,
@@ -393,11 +389,18 @@
      * 计算当前规格下的棋盘像素几何参数
      */
     calcGeometry() {
-      // 棋盘总外宽 396px
-      this.boardPixelSize = 396
-      const step = Math.floor(396 / this.size)
+      // 棋盘边长不能写死：须由可用高度反推，否则会溢出容器被裁切。
+      // GT2 方屏 432x514 纵向预算：
+      //   514 - padding(6+10) - header(48) - status(约34) - action-bar(54) = 362
+      // board-container 还有 border 2px*2，故内容区上限取 344，留出余量
+      // （状态栏若因字体渲染略高，仍有约 14px 缓冲）。
+      const MAX_BOARD = 344
+      // step 取偶数：保证 step/2 为整数，网格线交叉点与格子中心精确重合，
+      // 同时棋盘左右留白对称（奇数 step 会出现 1px 不对称）。
+      const step = Math.max(16, 2 * Math.floor(MAX_BOARD / this.size / 2))
       this.cellPixelSize = step
-      this.gridLineOffset = Math.floor(step / 2)
+      this.boardPixelSize = step * this.size
+      this.gridLineOffset = step / 2
 
       // 棋子直径约为格子宽度的 86%
       const stoneD = Math.max(18, Math.floor(step * 0.86))
@@ -414,6 +417,33 @@
       this.starDotSize = starD
       this.starDotRadius = Math.floor(starD / 2)
       this.starDotOffset = Math.floor((step - starD) / 2)
+
+      this.rebuildLines()
+    },
+
+    /**
+     * 重建网格线：横 N 条 + 竖 N 条
+     *
+     * 不再逐格画半段（那样一条线会被拆成 N 个独立节点，靠 50% 百分比拼接，
+     * 在真机上每格边界都会出现接缝）。改为整条绘制：
+     *   起点 = i * step + step / 2        （第 i 个交叉点）
+     *   长度 = step * (size - 1)          （首末交叉点之间的距离）
+     * 节点数从 4 * N^2 降到 2 * N。
+     */
+    rebuildLines() {
+      const n = this.size
+      const s = this.cellPixelSize
+      const inset = this.gridLineOffset
+      const length = s * (n - 1)
+      const h = []
+      const v = []
+      for (let i = 0; i < n; i++) {
+        const offset = i * s + inset
+        h.push({ offset: offset, inset: inset, length: length })
+        v.push({ offset: offset, inset: inset, length: length })
+      }
+      this.hLines = h
+      this.vLines = v
     },
 
     /**
@@ -442,25 +472,36 @@
      */
     rebuildCells() {
       const list = []
+      const dots = []
       const selR = this.selectedPos ? this.selectedPos.r : -1
       const selC = this.selectedPos ? this.selectedPos.c : -1
       const lastR = this.lastMove ? this.lastMove.r : -1
       const lastC = this.lastMove ? this.lastMove.c : -1
+      const s = this.cellPixelSize
 
       for (let r = 0; r < this.size; r++) {
         for (let c = 0; c < this.size; c++) {
           const val = this.board[r][c]
+          const isStar = isStarPoint(this.size, r, c)
+          // 星位点单独出图：只在该点为空时显示，坐标直接算到棋盘坐标系，
+          // 不放进 cell 里靠 show 控制（长列表节点回收会导致点漂移）
+          if (isStar && val === EMPTY) {
+            dots.push({
+              top: r * s + this.starDotOffset,
+              left: c * s + this.starDotOffset,
+            })
+          }
           list.push({
             r,
             c,
             val,
-            isStar: isStarPoint(this.size, r, c),
             isSelected: selR === r && selC === c,
             isLast: lastR === r && lastC === c,
           })
         }
       }
       this.cells = list
+      this.starDots = dots
     },
 
     /**
@@ -922,6 +963,7 @@
   }
 
   .board-container {
+    position: relative;
     background-color: #d8a85e;
     border-radius: 8px;
     border: 2px solid #7c5123;
@@ -935,37 +977,18 @@
     position: relative;
   }
 
-  /* 十字网格线 */
-  .line-h-left {
+  /* 网格线：横 N 条 + 竖 N 条，每条一次画完整条 */
+  .grid-line {
     position: absolute;
-    left: 0;
-    width: 50%;
+    background-color: #5c3d1e;
+  }
+
+  .grid-line-h {
     height: 1px;
-    background-color: #5c3d1e;
   }
 
-  .line-h-right {
-    position: absolute;
-    right: 0;
-    width: 50%;
-    height: 1px;
-    background-color: #5c3d1e;
-  }
-
-  .line-v-top {
-    position: absolute;
-    top: 0;
-    height: 50%;
+  .grid-line-v {
     width: 1px;
-    background-color: #5c3d1e;
-  }
-
-  .line-v-bottom {
-    position: absolute;
-    bottom: 0;
-    height: 50%;
-    width: 1px;
-    background-color: #5c3d1e;
   }
 
   /* 星位黑点 */
