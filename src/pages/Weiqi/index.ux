@@ -88,7 +88,7 @@
           if="{{placementMode === 'confirm' && selectedPos}}"
           class="btn btn-confirm"
           type="button"
-          value="落子 {{selectedPos.coordText}}"
+          value="{{ selectedPos ? '落子 ' + selectedPos.coordText : '' }}"
           onclick="confirmPlacement" />
 
         <!-- 默认模式 / 未选择时的按钮组 -->
@@ -346,7 +346,8 @@
     onReady() {
       // 若玩家执白，AI执黑先手
       if (this.playerColor === WHITE && this.currentTurn === BLACK) {
-        this.statusMessage = 'AI黑棋思考中...'
+        this.isThinking = true
+        this.updateStatusMessage()
         setTimeout(() => {
           this.triggerAIMove()
         }, 500)
@@ -565,6 +566,14 @@
      * 确认落子
      */
     confirmPlacement() {
+      if (this.gameOver) {
+        prompt.showToast({ message: '对局已结束，请重新开始' })
+        return
+      }
+      if (this.isThinking) {
+        prompt.showToast({ message: 'AI正在思考，请稍候' })
+        return
+      }
       if (!this.selectedPos) {
         prompt.showToast({ message: '请先点击棋盘选点' })
         return
@@ -701,6 +710,10 @@
      * 玩家停一手 (Pass)
      */
     handlePass() {
+      if (this.gameOver) {
+        prompt.showToast({ message: '对局已结束，请重新开始' })
+        return
+      }
       if (this.isThinking) return
       if (this.currentTurn !== this.playerColor) {
         prompt.showToast({ message: '轮到对手回合' })
@@ -758,6 +771,9 @@
      * 终局胜负结算
      */
     finishGame() {
+      // 幂等保护：终局后若再被触发（如关闭结算面板后又点停一手），
+      // 会重复累加战绩统计
+      if (this.gameOver) return
       this.gameOver = true
       const komi = this.size === 13 ? 7.5 : 3.75
       const score = calculateScore(this.board, komi)
@@ -813,7 +829,10 @@
       this.showResultModal = false
       this.initBoard()
       if (this.playerColor === WHITE) {
-        this.statusMessage = 'AI黑棋思考中...'
+        // AI 执黑先手：延时窗口内必须置 isThinking，
+        // 否则状态自相矛盾（提示说 AI 在想，但悔棋/终局等未按思考中处理）
+        this.isThinking = true
+        this.updateStatusMessage()
         setTimeout(() => {
           this.triggerAIMove()
         }, 400)
