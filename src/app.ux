@@ -1,0 +1,8 @@
+<script>
+  /**manifest**/
+  export default {
+    onCreate() {
+      console.log('蓝河围棋应用启动')
+    },
+  }
+</script>

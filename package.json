@@ -1,0 +1,27 @@
+{
+  "name": "weiqi",
+  "version": "1.0.0",
+  "packageManager": "pnpm@9.9.0",
+  "description": "Hello World template using Tailwind CSS.",
+  "scripts": {
+    "lint": "eslint --ext .ux,.js src/",
+    "prettier": "node ./scripts/selfCloseInputTag.js && prettier --plugin prettier-plugin-ux --write \"src/**/*.{js,ux,less,scss,css}\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.2.0",
+    "eslint": "^7.32.0",
+    "eslint-plugin-json": "^1.4.0",
+    "eslint-plugin-vue": "^9.26.0",
+    "prettier": "^3.2.5",
+    "prettier-plugin-tailwindcss": "^0.5.14",
+    "prettier-plugin-ux": "^0.3.0"
+  },
+  "keywords": [
+    "Hello World",
+    "Tailwind CSS",
+    "prettier"
+  ],
+  "dependencies": {
+    "tailwindcss": "^3.4.13"
+  }
+}

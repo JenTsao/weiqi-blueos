@@ -1,0 +1,52 @@
+<script>
+  import router from '@blueos.app.appmanager.router'
+
+  export default {
+    onInit() {
+      if (router && typeof router.replace === 'function') {
+        router.replace({
+          uri: 'pages/Weiqi',
+        })
+      }
+    },
+
+    goGame() {
+      if (router && typeof router.replace === 'function') {
+        router.replace({
+          uri: 'pages/Weiqi',
+        })
+      }
+    },
+  }
+</script>
+
+<template>
+  <div class="main">
+    <text class="title">蓝河围棋</text>
+    <input class="btn" type="button" value="进入对弈" onclick="goGame" />
+  </div>
+</template>
+
+<style>
+  .main {
+    width: 100%;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: #121212;
+  }
+  .title {
+    font-size: 28px;
+    color: #ffffff;
+    margin-bottom: 24px;
+  }
+  .btn {
+    width: 200px;
+    height: 50px;
+    border-radius: 25px;
+    background-color: #3b82f6;
+    color: #ffffff;
+    font-size: 18px;
+  }
+</style>

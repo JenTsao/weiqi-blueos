@@ -1,0 +1,1204 @@
+<template>
+  <stack class="root-stack">
+    <!-- 主界面容器 -->
+    <div class="main-page">
+      <!-- 顶部信息栏 -->
+      <div class="header-bar">
+        <!-- 黑方信息 -->
+        <div class="player-pill {{currentTurn === 1 ? 'pill-active' : ''}}">
+          <div class="stone-icon stone-icon-black"></div>
+          <text class="player-name">{{ playerColor === 1 ? '您(黑)' : 'AI(黑)' }}</text>
+          <text class="capture-badge">{{ capturedByBlack }}</text>
+        </div>
+
+        <!-- 对局状态中岛 -->
+        <div class="turn-status-box">
+          <text class="turn-status-text {{isThinking ? 'status-thinking' : ''}}">
+            {{ statusMessage }}
+          </text>
+          <text class="step-count-text">第 {{ moveHistory.length + 1 }} 手</text>
+        </div>
+
+        <!-- 白方信息 -->
+        <div class="player-pill {{currentTurn === 2 ? 'pill-active' : ''}}">
+          <div class="stone-icon stone-icon-white"></div>
+          <text class="player-name">{{ playerColor === 2 ? '您(白)' : 'AI(白)' }}</text>
+          <text class="capture-badge">{{ capturedByWhite }}</text>
+        </div>
+      </div>
+
+      <!-- 中间棋盘区域 -->
+      <div class="board-wrapper">
+        <div
+          class="board-container"
+          style="width: {{boardPixelSize}}px; height: {{boardPixelSize}}px;">
+          <!-- 棋盘单元格网格 -->
+          <div
+            for="{{cells}}"
+            class="cell"
+            style="width: {{cellPixelSize}}px; height: {{cellPixelSize}}px;"
+            onclick="handleCellClick($item)">
+            <!-- 十字网格线 -->
+            <div
+              class="line-h-left"
+              style="top: {{gridLineOffset}}px;"
+              show="{{$item.c > 0}}"></div>
+            <div
+              class="line-h-right"
+              style="top: {{gridLineOffset}}px;"
+              show="{{$item.c < size - 1}}"></div>
+            <div
+              class="line-v-top"
+              style="left: {{gridLineOffset}}px;"
+              show="{{$item.r > 0}}"></div>
+            <div
+              class="line-v-bottom"
+              style="left: {{gridLineOffset}}px;"
+              show="{{$item.r < size - 1}}"></div>
+
+            <!-- 星位点 -->
+            <div
+              class="star-dot"
+              style="width: {{starDotSize}}px; height: {{starDotSize}}px; border-radius: {{starDotRadius}}px; top: {{starDotOffset}}px; left: {{starDotOffset}}px;"
+              show="{{$item.isStar && $item.val === 0}}"></div>
+
+            <!-- 黑子 -->
+            <div
+              class="stone stone-black"
+              style="width: {{stonePixelSize}}px; height: {{stonePixelSize}}px; border-radius: {{stoneRadius}}px; top: {{stoneOffset}}px; left: {{stoneOffset}}px;"
+              show="{{$item.val === 1}}">
+              <!-- 最后一手标记 -->
+              <div class="last-marker last-marker-black" show="{{$item.isLast}}"></div>
+            </div>
+
+            <!-- 白子 -->
+            <div
+              class="stone stone-white"
+              style="width: {{stonePixelSize}}px; height: {{stonePixelSize}}px; border-radius: {{stoneRadius}}px; top: {{stoneOffset}}px; left: {{stoneOffset}}px;"
+              show="{{$item.val === 2}}">
+              <!-- 最后一手标记 -->
+              <div class="last-marker last-marker-white" show="{{$item.isLast}}"></div>
+            </div>
+
+            <!-- 预选高亮瞄准圈 (确认模式下) -->
+            <div
+              class="cursor-ring"
+              style="width: {{cursorPixelSize}}px; height: {{cursorPixelSize}}px; border-radius: {{cursorRadius}}px; top: {{cursorOffset}}px; left: {{cursorOffset}}px;"
+              show="{{$item.isSelected && $item.val === 0}}"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部操作栏 -->
+      <div class="action-bar">
+        <!-- 预选确认模式下的确认落子按钮 -->
+        <input
+          if="{{placementMode === 'confirm' && selectedPos}}"
+          class="btn btn-confirm"
+          type="button"
+          value="落子 {{selectedPos.coordText}}"
+          onclick="confirmPlacement" />
+
+        <!-- 默认模式 / 未选择时的按钮组 -->
+        <input
+          if="{{placementMode !== 'confirm' || !selectedPos}}"
+          class="btn btn-secondary"
+          type="button"
+          value="悔棋"
+          onclick="handleUndo" />
+
+        <input
+          if="{{placementMode !== 'confirm' || !selectedPos}}"
+          class="btn btn-secondary"
+          type="button"
+          value="停一手"
+          onclick="handlePass" />
+
+        <input
+          if="{{placementMode !== 'confirm' || !selectedPos}}"
+          class="btn btn-secondary"
+          type="button"
+          value="数子"
+          onclick="handleCountScore" />
+
+        <input class="btn btn-menu" type="button" value="设置" onclick="openSettings" />
+      </div>
+    </div>
+
+    <!-- 弹窗遮罩与对话框：对局结算面板 -->
+    <div class="modal-mask" if="{{showResultModal}}">
+      <div class="modal-card">
+        <text class="modal-title">{{ resultData.winnerText }}</text>
+        <text class="modal-subtitle">{{ resultData.scoreText }}</text>
+
+        <div class="score-detail-box">
+          <div class="score-row">
+            <text class="score-label">黑棋(子+目)：</text>
+            <text class="score-val">{{ resultData.blackDetail }}</text>
+          </div>
+          <div class="score-row">
+            <text class="score-label">白棋(子+目+贴)：</text>
+            <text class="score-val">{{ resultData.whiteDetail }}</text>
+          </div>
+          <div class="score-row">
+            <text class="score-label">贴目规则：</text>
+            <text class="score-val">{{ size === 13 ? '贴 7.5 目' : '贴 3.75 目' }}</text>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <input class="btn btn-primary" type="button" value="再来一局" onclick="restartGame" />
+          <input
+            class="btn btn-secondary"
+            type="button"
+            value="查看终局"
+            onclick="closeResultModal" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 弹窗遮罩与对话框：游戏设置面板 -->
+    <div class="modal-mask" if="{{showSettingsModal}}">
+      <div class="modal-card modal-card-scroll">
+        <text class="modal-title">对弈设置</text>
+
+        <!-- 战绩统计 -->
+        <div class="stats-box">
+          <text class="stats-text">
+            总场: {{ stats.games }} 胜: {{ stats.wins }} 负: {{ stats.losses }}
+          </text>
+          <text class="stats-rate">胜率: {{ winRate }}%</text>
+        </div>
+
+        <!-- 棋盘规格 -->
+        <text class="section-title">棋盘规格</text>
+        <div class="option-row">
+          <input
+            class="btn-opt {{size === 7 ? 'opt-active' : ''}}"
+            type="button"
+            value="7路极速"
+            onclick="changeSize(7)" />
+          <input
+            class="btn-opt {{size === 9 ? 'opt-active' : ''}}"
+            type="button"
+            value="9路标准"
+            onclick="changeSize(9)" />
+          <input
+            class="btn-opt {{size === 13 ? 'opt-active' : ''}}"
+            type="button"
+            value="13路进阶"
+            onclick="changeSize(13)" />
+        </div>
+
+        <!-- AI难度 -->
+        <text class="section-title">AI难度</text>
+        <div class="option-row">
+          <input
+            class="btn-opt {{difficulty === 'novice' ? 'opt-active' : ''}}"
+            type="button"
+            value="入门"
+            onclick="changeDifficulty('novice')" />
+          <input
+            class="btn-opt {{difficulty === 'medium' ? 'opt-active' : ''}}"
+            type="button"
+            value="业余"
+            onclick="changeDifficulty('medium')" />
+          <input
+            class="btn-opt {{difficulty === 'master' ? 'opt-active' : ''}}"
+            type="button"
+            value="高手"
+            onclick="changeDifficulty('master')" />
+        </div>
+
+        <!-- 执子选择 -->
+        <text class="section-title">执子顺序</text>
+        <div class="option-row">
+          <input
+            class="btn-opt {{playerColor === 1 ? 'opt-active' : ''}}"
+            type="button"
+            value="执黑(先手)"
+            onclick="changePlayerColor(1)" />
+          <input
+            class="btn-opt {{playerColor === 2 ? 'opt-active' : ''}}"
+            type="button"
+            value="执白(后手)"
+            onclick="changePlayerColor(2)" />
+        </div>
+
+        <!-- 落子防误触模式 -->
+        <text class="section-title">落子交互模式</text>
+        <div class="option-row">
+          <input
+            class="btn-opt {{placementMode === 'confirm' ? 'opt-active' : ''}}"
+            type="button"
+            value="预选确认(防误触)"
+            onclick="changePlacementMode('confirm')" />
+          <input
+            class="btn-opt {{placementMode === 'direct' ? 'opt-active' : ''}}"
+            type="button"
+            value="单触即落"
+            onclick="changePlacementMode('direct')" />
+        </div>
+
+        <div class="modal-actions" style="margin-top: 16px">
+          <input
+            class="btn btn-primary"
+            type="button"
+            value="保存并新局"
+            onclick="saveAndStartNewGame" />
+          <input class="btn btn-secondary" type="button" value="规则简介" onclick="openRules" />
+          <input class="btn btn-secondary" type="button" value="关闭" onclick="closeSettings" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 弹窗遮罩与对话框：围棋规则简介 -->
+    <div class="modal-mask" if="{{showRulesModal}}">
+      <div class="modal-card">
+        <text class="modal-title">围棋规则速览</text>
+        <div class="rules-content">
+          <text class="rule-p">1. 【气与提子】相连直线上的空位为“气”。无气者被提除。</text>
+          <text class="rule-p">2. 【禁着点】落子后自身无气且无法提除敌子者禁止落子。</text>
+          <text class="rule-p">3. 【打劫】提单子后禁止立即回提，需隔一手以防无限循环。</text>
+          <text class="rule-p">4. 【胜负判定】双方连续停一手终局，中国规则数子多者胜。</text>
+        </div>
+        <div class="modal-actions" style="margin-top: 12px">
+          <input class="btn btn-primary" type="button" value="我知道了" onclick="closeRules" />
+        </div>
+      </div>
+    </div>
+  </stack>
+</template>
+
+<script>
+  import prompt from '@blueos.window.prompt'
+  import {
+    EMPTY,
+    BLACK,
+    WHITE,
+    createBoard,
+    isStarPoint,
+    playMove,
+    calculateScore,
+    formatCoord,
+  } from '../../common/engine.js'
+  import { getAIMove, DIFFICULTY } from '../../common/ai.js'
+  import { storageService } from '../../common/storage.js'
+
+  export default {
+    data: {
+      // 棋盘配置
+      size: 9,
+      difficulty: DIFFICULTY.MEDIUM,
+      playerColor: BLACK,
+      placementMode: 'confirm', // 'confirm' 或 'direct'
+
+      // 布局尺寸 (基于 432px 宽度设计稿)
+      boardPixelSize: 396,
+      cellPixelSize: 44,
+      gridLineOffset: 22,
+      stonePixelSize: 38,
+      stoneRadius: 19,
+      stoneOffset: 3,
+      cursorPixelSize: 42,
+      cursorRadius: 21,
+      cursorOffset: 1,
+      starDotSize: 6,
+      starDotRadius: 3,
+      starDotOffset: 19,
+
+      // 对局状态
+      currentTurn: BLACK,
+      board: [],
+      cells: [],
+      moveHistory: [],
+      capturedByBlack: 0,
+      capturedByWhite: 0,
+      koPoint: null,
+      lastMove: null,
+      selectedPos: null,
+      isThinking: false,
+      consecutivePasses: 0,
+      gameOver: false,
+      statusMessage: '轮到您落子',
+
+      // 弹窗状态
+      showSettingsModal: false,
+      showResultModal: false,
+      showRulesModal: false,
+      resultData: {
+        winnerText: '',
+        scoreText: '',
+        blackDetail: '',
+        whiteDetail: '',
+      },
+
+      // 战绩记录
+      stats: {
+        games: 0,
+        wins: 0,
+        losses: 0,
+      },
+      winRate: 0,
+    },
+
+    onInit() {
+      this.loadSettingsAndStats()
+      this.initBoard()
+    },
+
+    onReady() {
+      // 若玩家执白，AI执黑先手
+      if (this.playerColor === WHITE && this.currentTurn === BLACK) {
+        this.statusMessage = 'AI黑棋思考中...'
+        setTimeout(() => {
+          this.triggerAIMove()
+        }, 500)
+      }
+    },
+
+    /**
+     * 读取存储的配置与战绩
+     */
+    async loadSettingsAndStats() {
+      const savedSize = await storageService.get('pref_size', 9)
+      const savedDiff = await storageService.get('pref_diff', DIFFICULTY.MEDIUM)
+      const savedMode = await storageService.get('pref_mode', 'confirm')
+      const savedColor = await storageService.get('pref_color', BLACK)
+      const savedStats = await storageService.get('user_stats', {
+        games: 0,
+        wins: 0,
+        losses: 0,
+      })
+
+      this.size = savedSize
+      this.difficulty = savedDiff
+      this.placementMode = savedMode
+      this.playerColor = savedColor
+      this.stats = savedStats || { games: 0, wins: 0, losses: 0 }
+      this.updateWinRate()
+
+      this.calcGeometry()
+    },
+
+    updateWinRate() {
+      if (!this.stats || this.stats.games === 0) {
+        this.winRate = 0
+      } else {
+        this.winRate = Math.round((this.stats.wins / this.stats.games) * 100)
+      }
+    },
+
+    /**
+     * 计算当前规格下的棋盘像素几何参数
+     */
+    calcGeometry() {
+      // 棋盘总外宽 396px
+      this.boardPixelSize = 396
+      const step = Math.floor(396 / this.size)
+      this.cellPixelSize = step
+      this.gridLineOffset = Math.floor(step / 2)
+
+      // 棋子直径约为格子宽度的 86%
+      const stoneD = Math.max(18, Math.floor(step * 0.86))
+      this.stonePixelSize = stoneD
+      this.stoneRadius = Math.floor(stoneD / 2)
+      this.stoneOffset = Math.floor((step - stoneD) / 2)
+
+      const cursorD = Math.max(22, Math.floor(step * 0.94))
+      this.cursorPixelSize = cursorD
+      this.cursorRadius = Math.floor(cursorD / 2)
+      this.cursorOffset = Math.floor((step - cursorD) / 2)
+
+      const starD = this.size === 13 ? 4 : 6
+      this.starDotSize = starD
+      this.starDotRadius = Math.floor(starD / 2)
+      this.starDotOffset = Math.floor((step - starD) / 2)
+    },
+
+    /**
+     * 初始化棋盘状态
+     */
+    initBoard() {
+      this.calcGeometry()
+      this.board = createBoard(this.size)
+      this.moveHistory = []
+      this.capturedByBlack = 0
+      this.capturedByWhite = 0
+      this.koPoint = null
+      this.lastMove = null
+      this.selectedPos = null
+      this.isThinking = false
+      this.consecutivePasses = 0
+      this.gameOver = false
+      this.currentTurn = BLACK
+
+      this.updateStatusMessage()
+      this.rebuildCells()
+    },
+
+    /**
+     * 重建单层扁平 cells 数组供模板高效渲染
+     */
+    rebuildCells() {
+      const list = []
+      const selR = this.selectedPos ? this.selectedPos.r : -1
+      const selC = this.selectedPos ? this.selectedPos.c : -1
+      const lastR = this.lastMove ? this.lastMove.r : -1
+      const lastC = this.lastMove ? this.lastMove.c : -1
+
+      for (let r = 0; r < this.size; r++) {
+        for (let c = 0; c < this.size; c++) {
+          const val = this.board[r][c]
+          list.push({
+            r,
+            c,
+            val,
+            isStar: isStarPoint(this.size, r, c),
+            isSelected: selR === r && selC === c,
+            isLast: lastR === r && lastC === c,
+          })
+        }
+      }
+      this.cells = list
+    },
+
+    /**
+     * 更新状态栏提示语
+     */
+    updateStatusMessage() {
+      if (this.gameOver) {
+        this.statusMessage = '对局已终局'
+        return
+      }
+      if (this.isThinking) {
+        this.statusMessage = 'AI思考中...'
+        return
+      }
+      if (this.currentTurn === this.playerColor) {
+        this.statusMessage = '轮到您落子'
+      } else {
+        this.statusMessage = '等待对手落子'
+      }
+    },
+
+    /**
+     * 玩家点击棋盘格子
+     */
+    handleCellClick(item) {
+      if (this.gameOver) {
+        prompt.showToast({ message: '对局已结束，请重新开始' })
+        return
+      }
+
+      if (this.isThinking) {
+        prompt.showToast({ message: 'AI正在思考，请稍候' })
+        return
+      }
+
+      if (this.currentTurn !== this.playerColor) {
+        prompt.showToast({ message: '当前轮到对手回合' })
+        return
+      }
+
+      if (item.val !== EMPTY) {
+        prompt.showToast({ message: '此处已有棋子' })
+        return
+      }
+
+      if (this.placementMode === 'confirm') {
+        // 预选模式：瞄准并高亮该点
+        this.selectedPos = {
+          r: item.r,
+          c: item.c,
+          coordText: formatCoord(this.size, item.r, item.c),
+        }
+        this.rebuildCells()
+      } else {
+        // 直接落子模式
+        this.executeMove(item.r, item.c, this.playerColor)
+      }
+    },
+
+    /**
+     * 确认落子
+     */
+    confirmPlacement() {
+      if (!this.selectedPos) {
+        prompt.showToast({ message: '请先点击棋盘选点' })
+        return
+      }
+      const { r, c } = this.selectedPos
+      this.selectedPos = null
+      this.executeMove(r, c, this.playerColor)
+    },
+
+    /**
+     * 执行一步落子 (玩家或AI均走此流程)
+     */
+    executeMove(r, c, color) {
+      const res = playMove(this.board, r, c, color, this.koPoint)
+
+      if (!res.success) {
+        prompt.showToast({ message: res.error || '非法落子' })
+        return false
+      }
+
+      // 保存历史记录供悔棋
+      this.moveHistory.push({
+        board: this.board.map((row) => [...row]),
+        currentTurn: this.currentTurn,
+        capturedByBlack: this.capturedByBlack,
+        capturedByWhite: this.capturedByWhite,
+        koPoint: this.koPoint,
+        lastMove: this.lastMove,
+      })
+
+      // 更新棋盘与提子统计
+      this.board = res.newBoard
+      if (res.captured > 0) {
+        if (color === BLACK) {
+          this.capturedByBlack += res.captured
+          prompt.showToast({ message: `黑棋提子 +${res.captured}` })
+        } else {
+          this.capturedByWhite += res.captured
+          prompt.showToast({ message: `白棋提子 +${res.captured}` })
+        }
+      }
+
+      this.koPoint = res.koPoint
+      this.lastMove = { r, c }
+      this.consecutivePasses = 0
+
+      // 切换回合
+      this.currentTurn = color === BLACK ? WHITE : BLACK
+      this.updateStatusMessage()
+      this.rebuildCells()
+
+      // 若轮到AI执子，触发AI演算
+      if (!this.gameOver && this.currentTurn !== this.playerColor) {
+        this.isThinking = true
+        this.updateStatusMessage()
+        setTimeout(() => {
+          this.triggerAIMove()
+        }, 320)
+      }
+
+      return true
+    },
+
+    /**
+     * 触发 AI 落子计算
+     */
+    triggerAIMove() {
+      const aiColor = this.playerColor === BLACK ? WHITE : BLACK
+      const aiMove = getAIMove(this.board, aiColor, this.difficulty, this.koPoint)
+
+      this.isThinking = false
+
+      if (!aiMove) {
+        // AI 无棋可下，选择停一手 (Pass)
+        prompt.showToast({ message: 'AI 选择停一手 (Pass)' })
+        this.consecutivePasses++
+        if (this.consecutivePasses >= 2) {
+          this.finishGame()
+        } else {
+          this.currentTurn = this.playerColor
+          this.updateStatusMessage()
+          this.rebuildCells()
+        }
+      } else {
+        this.executeMove(aiMove.r, aiMove.c, aiColor)
+      }
+    },
+
+    /**
+     * 玩家悔棋
+     */
+    handleUndo() {
+      if (this.isThinking) {
+        prompt.showToast({ message: 'AI思考中，暂不可悔棋' })
+        return
+      }
+
+      if (this.moveHistory.length === 0) {
+        prompt.showToast({ message: '开局暂无棋可悔' })
+        return
+      }
+
+      // 如果当前轮到玩家，说明上一步是AI下的，需回退两手（AI的一手与玩家的一手）
+      let stepsToUndo = 1
+      if (this.currentTurn === this.playerColor && this.moveHistory.length >= 2) {
+        stepsToUndo = 2
+      }
+
+      let restoredState = null
+      for (let i = 0; i < stepsToUndo; i++) {
+        if (this.moveHistory.length > 0) {
+          restoredState = this.moveHistory.pop()
+        }
+      }
+
+      if (restoredState) {
+        this.board = restoredState.board
+        this.currentTurn = restoredState.currentTurn
+        this.capturedByBlack = restoredState.capturedByBlack
+        this.capturedByWhite = restoredState.capturedByWhite
+        this.koPoint = restoredState.koPoint
+        this.lastMove = restoredState.lastMove
+        this.selectedPos = null
+        this.gameOver = false
+        this.consecutivePasses = 0
+
+        this.updateStatusMessage()
+        this.rebuildCells()
+        prompt.showToast({ message: `已悔棋 ${stepsToUndo} 手` })
+      }
+    },
+
+    /**
+     * 玩家停一手 (Pass)
+     */
+    handlePass() {
+      if (this.isThinking) return
+      if (this.currentTurn !== this.playerColor) {
+        prompt.showToast({ message: '轮到对手回合' })
+        return
+      }
+
+      this.moveHistory.push({
+        board: this.board.map((row) => [...row]),
+        currentTurn: this.currentTurn,
+        capturedByBlack: this.capturedByBlack,
+        capturedByWhite: this.capturedByWhite,
+        koPoint: this.koPoint,
+        lastMove: this.lastMove,
+      })
+
+      prompt.showToast({ message: '您选择停一手 (Pass)' })
+      this.consecutivePasses++
+
+      if (this.consecutivePasses >= 2) {
+        // 双方连续停一手，终局数子
+        this.finishGame()
+      } else {
+        this.currentTurn = this.playerColor === BLACK ? WHITE : BLACK
+        this.isThinking = true
+        this.updateStatusMessage()
+        this.rebuildCells()
+        setTimeout(() => {
+          this.triggerAIMove()
+        }, 320)
+      }
+    },
+
+    /**
+     * 主动数子/形势判断
+     */
+    handleCountScore() {
+      const komi = this.size === 13 ? 7.5 : 3.75
+      const score = calculateScore(this.board, komi)
+
+      let leadText = ''
+      if (score.winner === BLACK) {
+        leadText = `黑领先 ${score.diff} 目`
+      } else if (score.winner === WHITE) {
+        leadText = `白领先 ${score.diff} 目`
+      } else {
+        leadText = '双方盘面相当'
+      }
+
+      prompt.showToast({
+        message: `形势估计: ${leadText}`,
+      })
+    },
+
+    /**
+     * 终局胜负结算
+     */
+    finishGame() {
+      this.gameOver = true
+      const komi = this.size === 13 ? 7.5 : 3.75
+      const score = calculateScore(this.board, komi)
+
+      let winnerText = ''
+      let isPlayerWin = false
+
+      if (score.winner === this.playerColor) {
+        winnerText = '🎉 恭喜您获得胜利！'
+        isPlayerWin = true
+      } else if (score.winner === 0) {
+        winnerText = '🤝 盘面和棋！'
+      } else {
+        winnerText = '🤖 AI 获得本次胜利'
+      }
+
+      const diffText =
+        score.winner === BLACK
+          ? `黑胜 ${score.diff} 目`
+          : score.winner === WHITE
+            ? `白胜 ${score.diff} 目`
+            : '和棋'
+
+      this.resultData = {
+        winnerText,
+        scoreText: diffText,
+        blackDetail: `${score.blackStones}子 + ${score.blackTerritory}目 = ${score.blackTotal}分`,
+        whiteDetail: `${score.whiteStones}子 + ${score.whiteTerritory}目 + ${komi}贴 = ${score.whiteTotal}分`,
+      }
+
+      // 更新战绩统计
+      this.stats.games++
+      if (isPlayerWin) {
+        this.stats.wins++
+      } else {
+        this.stats.losses++
+      }
+      this.updateWinRate()
+      storageService.set('user_stats', this.stats)
+
+      this.showResultModal = true
+      this.updateStatusMessage()
+    },
+
+    /**
+     * 弹窗控制
+     */
+    closeResultModal() {
+      this.showResultModal = false
+    },
+
+    restartGame() {
+      this.showResultModal = false
+      this.initBoard()
+      if (this.playerColor === WHITE) {
+        this.statusMessage = 'AI黑棋思考中...'
+        setTimeout(() => {
+          this.triggerAIMove()
+        }, 400)
+      }
+    },
+
+    openSettings() {
+      this.showSettingsModal = true
+    },
+
+    closeSettings() {
+      this.showSettingsModal = false
+    },
+
+    changeSize(s) {
+      this.size = s
+    },
+
+    changeDifficulty(d) {
+      this.difficulty = d
+    },
+
+    changePlayerColor(c) {
+      this.playerColor = c
+    },
+
+    changePlacementMode(m) {
+      this.placementMode = m
+    },
+
+    async saveAndStartNewGame() {
+      await storageService.set('pref_size', this.size)
+      await storageService.set('pref_diff', this.difficulty)
+      await storageService.set('pref_mode', this.placementMode)
+      await storageService.set('pref_color', this.playerColor)
+
+      this.showSettingsModal = false
+      this.restartGame()
+      prompt.showToast({ message: '设置已保存，开始新对局' })
+    },
+
+    openRules() {
+      this.showRulesModal = true
+    },
+
+    closeRules() {
+      this.showRulesModal = false
+    },
+  }
+</script>
+
+<style>
+  /* 根容器与黑底省电适配 */
+  .root-stack {
+    width: 100%;
+    height: 100%;
+  }
+
+  .main-page {
+    width: 100%;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    background-color: #121212;
+    padding: 6px 12px 10px;
+  }
+
+  /* 顶部信息栏 */
+  .header-bar {
+    width: 100%;
+    height: 48px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .player-pill {
+    flex-direction: row;
+    align-items: center;
+    background-color: #1e1e22;
+    border-radius: 14px;
+    padding: 4px 8px;
+    border: 1px solid #2d2d32;
+  }
+
+  .pill-active {
+    border: 1px solid #f59e0b;
+    background-color: #2a2215;
+  }
+
+  .stone-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    margin-right: 4px;
+  }
+
+  .stone-icon-black {
+    background-color: #1a1a1a;
+    border: 1px solid #444444;
+  }
+
+  .stone-icon-white {
+    background-color: #f0f0f0;
+    border: 1px solid #cccccc;
+  }
+
+  .player-name {
+    font-size: 14px;
+    color: #e5e5e5;
+  }
+
+  .capture-badge {
+    font-size: 13px;
+    color: #f59e0b;
+    font-weight: bold;
+    margin-left: 4px;
+  }
+
+  .turn-status-box {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .turn-status-text {
+    font-size: 13px;
+    color: #a3a3a3;
+  }
+
+  .status-thinking {
+    color: #3b82f6;
+  }
+
+  .step-count-text {
+    font-size: 11px;
+    color: #666666;
+    margin-top: 1px;
+  }
+
+  /* 棋盘主体包装区 */
+  .board-wrapper {
+    flex: 1;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .board-container {
+    background-color: #d8a85e;
+    border-radius: 8px;
+    border: 2px solid #7c5123;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+  }
+
+  /* 交叉点单元格 */
+  .cell {
+    position: relative;
+  }
+
+  /* 十字网格线 */
+  .line-h-left {
+    position: absolute;
+    left: 0;
+    width: 50%;
+    height: 1px;
+    background-color: #5c3d1e;
+  }
+
+  .line-h-right {
+    position: absolute;
+    right: 0;
+    width: 50%;
+    height: 1px;
+    background-color: #5c3d1e;
+  }
+
+  .line-v-top {
+    position: absolute;
+    top: 0;
+    height: 50%;
+    width: 1px;
+    background-color: #5c3d1e;
+  }
+
+  .line-v-bottom {
+    position: absolute;
+    bottom: 0;
+    height: 50%;
+    width: 1px;
+    background-color: #5c3d1e;
+  }
+
+  /* 星位黑点 */
+  .star-dot {
+    position: absolute;
+    background-color: #4a2f13;
+  }
+
+  /* 棋子 */
+  .stone {
+    position: absolute;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .stone-black {
+    background-color: #1a1a1a;
+    border: 1px solid #0a0a0a;
+  }
+
+  .stone-white {
+    background-color: #f7f7f7;
+    border: 1px solid #d4d4d8;
+  }
+
+  /* 最后一手标记 */
+  .last-marker {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+  }
+
+  .last-marker-black {
+    background-color: #f59e0b;
+  }
+
+  .last-marker-white {
+    background-color: #dc2626;
+  }
+
+  /* 预选高亮圈 */
+  .cursor-ring {
+    position: absolute;
+    border: 2px solid #ef4444;
+    background-color: rgba(239, 68, 68, 0.15);
+  }
+
+  /* 底部按钮栏 */
+  .action-bar {
+    width: 100%;
+    height: 54px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-around;
+  }
+
+  .btn {
+    height: 40px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: center;
+    padding: 0 10px;
+  }
+
+  .btn-confirm {
+    flex: 1;
+    margin: 0 4px;
+    background-color: #10b981;
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .btn-secondary {
+    flex: 1;
+    margin: 0 3px;
+    background-color: #26262a;
+    color: #e5e5e5;
+  }
+
+  .btn-menu {
+    width: 58px;
+    margin: 0 3px;
+    background-color: #3b82f6;
+    color: #ffffff;
+  }
+
+  .btn-primary {
+    height: 42px;
+    background-color: #3b82f6;
+    color: #ffffff;
+    margin: 4px 6px;
+  }
+
+  /* 弹窗通用样式 */
+  .modal-mask {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.85);
+    justify-content: center;
+    align-items: center;
+    padding: 16px;
+  }
+
+  .modal-card {
+    width: 100%;
+    background-color: #1e1e24;
+    border-radius: 16px;
+    padding: 16px 14px;
+    flex-direction: column;
+    align-items: center;
+    border: 1px solid #33333d;
+  }
+
+  .modal-card-scroll {
+    max-height: 440px;
+  }
+
+  .modal-title {
+    font-size: 20px;
+    font-weight: bold;
+    color: #ffffff;
+    margin-bottom: 6px;
+  }
+
+  .modal-subtitle {
+    font-size: 16px;
+    color: #f59e0b;
+    margin-bottom: 12px;
+  }
+
+  .score-detail-box {
+    width: 100%;
+    background-color: #141418;
+    border-radius: 10px;
+    padding: 10px 12px;
+    flex-direction: column;
+    margin-bottom: 14px;
+  }
+
+  .score-row {
+    flex-direction: row;
+    justify-content: space-between;
+    margin: 3px 0;
+  }
+
+  .score-label {
+    font-size: 13px;
+    color: #9ca3af;
+  }
+
+  .score-val {
+    font-size: 13px;
+    color: #e5e5e5;
+    font-weight: 500;
+  }
+
+  .modal-actions {
+    width: 100%;
+    flex-direction: row;
+    justify-content: center;
+  }
+
+  /* 设置面板特定 */
+  .stats-box {
+    width: 100%;
+    background-color: #272730;
+    border-radius: 8px;
+    padding: 6px 10px;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .stats-text {
+    font-size: 12px;
+    color: #d1d5db;
+  }
+
+  .stats-rate {
+    font-size: 12px;
+    color: #10b981;
+    font-weight: bold;
+  }
+
+  .section-title {
+    width: 100%;
+    font-size: 13px;
+    color: #9ca3af;
+    margin-top: 8px;
+    margin-bottom: 4px;
+  }
+
+  .option-row {
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .btn-opt {
+    flex: 1;
+    height: 32px;
+    border-radius: 8px;
+    background-color: #26262e;
+    color: #9ca3af;
+    font-size: 12px;
+    margin: 0 2px;
+  }
+
+  .opt-active {
+    background-color: #f59e0b;
+    color: #111111;
+    font-weight: bold;
+  }
+
+  /* 规则内容 */
+  .rules-content {
+    width: 100%;
+    background-color: #141418;
+    border-radius: 8px;
+    padding: 8px 10px;
+    flex-direction: column;
+  }
+
+  .rule-p {
+    font-size: 12px;
+    color: #d1d5db;
+    margin: 4px 0;
+    line-height: 18px;
+  }
+</style>

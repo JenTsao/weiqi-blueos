@@ -1,0 +1,42 @@
+{
+  "package": "com.jen.jweiqi",
+  "name": "蓝河围棋",
+  "versionName": "1.0.0",
+  "versionCode": 1,
+  "icon": "/assets/images/logo.png",
+  "features": [
+    {
+      "name": "blueos.window.prompt"
+    },
+    {
+      "name": "blueos.storage.storage"
+    },
+    {
+      "name": "blueos.app.router"
+    },
+    {
+      "name": "blueos.app.appmanager.router"
+    }
+  ],
+  "deviceTypeList": [
+    "watch",
+    "watch-square"
+  ],
+  "config": {
+    "designWidth": 432
+  },
+  "router": {
+    "entry": "pages/Weiqi",
+    "pages": {
+      "pages/Weiqi": {
+        "component": "index"
+      },
+      "pages/Demo": {
+        "component": "index"
+      }
+    }
+  },
+  "display": {
+    "backgroundColor": "#121212"
+  }
+}
